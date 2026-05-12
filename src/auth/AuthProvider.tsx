@@ -18,7 +18,6 @@ type AuthState = {
   profile: SellerProfile | null;
   loading: boolean;
   isSubscribed: boolean;
-  needsOnboarding: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -87,13 +86,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const isSubscribed = profile?.subscription_status === "active";
-  // User needs onboarding if logged in but has no profile row, or profile has no name
-  const needsOnboarding = !!user && (!profile || !profile.full_name?.trim());
 
   return (
     <AuthContext.Provider value={{
       session, user, profile, loading,
-      isSubscribed, needsOnboarding,
+      isSubscribed,
       signOut, refreshProfile,
     }}>
       {children}
