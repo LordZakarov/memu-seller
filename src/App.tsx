@@ -3,7 +3,6 @@ import { AuthProvider } from "@/auth/AuthProvider";
 import { RequireAuth } from "@/auth/Guards";
 import { SellerLayout } from "@/layout/SellerLayout";
 import Login from "@/pages/Login";
-import Onboarding from "@/pages/Onboarding";
 import Subscribe from "@/pages/Subscribe";
 import Dashboard from "@/pages/Dashboard";
 import Products from "@/pages/Products";
@@ -25,14 +24,6 @@ export default function App() {
           {/* Public */}
           <Route path="/login" element={<Login />} />
           <Route path="/subscription/complete" element={<SubscriptionComplete />} />
-
-          {/* Onboarding — requires login but NOT a completed profile */}
-          <Route
-            path="/onboarding"
-            element={<RequireAuth skipOnboardingCheck><Onboarding /></RequireAuth>}
-          />
-
-          {/* Subscribe — requires login */}
           <Route path="/subscribe" element={<RequireAuth><Subscribe /></RequireAuth>} />
 
           {/* All seller routes */}
