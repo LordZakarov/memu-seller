@@ -21,38 +21,21 @@ function Spinner() {
   );
 }
 
-/** Requires the user to be logged in. Redirects to /login if not.
- *  Pass skipOnboardingCheck={true} on the /onboarding route itself
- *  to prevent an infinite redirect loop.
- */
-export function RequireAuth({
-  children,
-  skipOnboardingCheck = false,
-}: {
-  children: React.ReactNode;
-  skipOnboardingCheck?: boolean;
-}) {
-  const { session, loading, needsOnboarding } = useAuth();
+/** Requires the user to be logged in. Redirects to /login if not. */
+export function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { session, loading } = useAuth();
   const location = useLocation();
-
   if (loading) return <Spinner />;
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
-  if (!skipOnboardingCheck && needsOnboarding) {
-    return <Navigate to="/onboarding" replace />;
-  }
   return <>{children}</>;
 }
 
-/** Requires an active subscription. */
+/** Requires an active subscription (seller premium features). */
 export function RequireSubscription({ children }: { children: React.ReactNode }) {
-  const { session, isSubscribed, loading, needsOnboarding } = useAuth();
+  const { session, isSubscribed, loading } = useAuth();
   const location = useLocation();
-
   if (loading) return <Spinner />;
   if (!session) return <Navigate to="/login" replace />;
-  if (needsOnboarding && location.pathname !== "/onboarding") {
-    return <Navigate to="/onboarding" replace />;
-  }
   if (!isSubscribed) return <Navigate to="/subscribe" replace state={{ from: location.pathname }} />;
   return <>{children}</>;
 }
