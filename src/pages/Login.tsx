@@ -120,10 +120,6 @@ export default function Login() {
         created_at: new Date().toISOString(),
       }, { onConflict: "id" });
 
-      // Save email to Supabase Auth too
-      if (email.trim()) {
-        await supabase.auth.updateUser({ email: email.trim() });
-      }
     }
 
     await refreshProfile();
