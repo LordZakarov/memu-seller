@@ -14,7 +14,7 @@ function formatPhone(raw: string): string {
 }
 
 export default function Account() {
-  const { user, profile, signOut, refreshProfile, isSubscribed } = useAuth();
+  const { user, profile, loading, signOut, refreshProfile, isSubscribed } = useAuth();
   const navigate = useNavigate();
 
   const [view, setView] = useState<View>("main");
@@ -24,15 +24,19 @@ export default function Account() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
 
-  // Phone change flow
   const [newPhone, setNewPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [phoneError, setPhoneError] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
 
+  // On mount: if profile not loaded yet, fetch it
   useEffect(() => {
     document.title = "Account — Memu Seller";
+    if (!profile && !loading) refreshProfile();
+  }, []);
+
+  // Whenever profile arrives (first load or after refresh), populate fields
+  useEffect(() => {
     if (profile) {
       setFullName(profile.full_name ?? "");
       setEmail(profile.email ?? "");
@@ -47,14 +51,10 @@ export default function Account() {
     }
     setSaving(true); setSaveError("");
 
-    // Check email uniqueness if changed
     if (email.trim() && email.trim() !== profile?.email) {
       const { data: exists } = await supabase
-        .from("users").select("id").eq("email", email.trim()).eq("role", "seller").neq("id", user!.id).maybeSingle();
-      if (exists) {
-        setSaveError("This email is already used by another account.");
-        setSaving(false); return;
-      }
+        .from("users").select("id").eq("email", email.trim()).eq("role", "seller").neq("id", user.id).maybeSingle();
+      if (exists) { setSaveError("This email is already used by another account."); setSaving(false); return; }
     }
 
     const { error } = await supabase.rpc("update_my_profile", {
@@ -68,26 +68,16 @@ export default function Account() {
     setTimeout(() => setSaved(false), 2500);
   }
 
-  // ── Phone change ──────────────────────────────────────────────────────────
   async function sendPhoneOtp() {
     const formatted = formatPhone(newPhone.trim());
-    if (formatted.replace(/\D/g, "").length < 7) {
-      setPhoneError("Enter a valid phone number"); return;
-    }
+    if (formatted.replace(/\D/g, "").length < 7) { setPhoneError("Enter a valid phone number"); return; }
     setPhoneLoading(true); setPhoneError("");
-
-    // Check not already taken
     const { data: exists } = await supabase
       .from("users").select("id").eq("phone", formatted).eq("role", "seller").maybeSingle();
-    if (exists) {
-      setPhoneError("This number is already registered to another account.");
-      setPhoneLoading(false); return;
-    }
-
+    if (exists) { setPhoneError("This number is already registered."); setPhoneLoading(false); return; }
     const { error } = await supabase.auth.signInWithOtp({ phone: formatted });
     setPhoneLoading(false);
     if (error) { setPhoneError(error.message); return; }
-    setOtpSent(true);
     setView("change-phone-otp");
   }
 
@@ -95,21 +85,15 @@ export default function Account() {
     if (otp.length < 6) { setPhoneError("Enter the 6-digit code"); return; }
     setPhoneLoading(true); setPhoneError("");
     const formatted = formatPhone(newPhone.trim());
-
-    const { error } = await supabase.auth.verifyOtp({
-      phone: formatted, token: otp, type: "sms",
-    });
+    const { error } = await supabase.auth.verifyOtp({ phone: formatted, token: otp, type: "sms" });
     if (error) { setPhoneError(error.message); setPhoneLoading(false); return; }
-
-    // Update phone in users table
     await supabase.from("users").update({ phone: formatted, phone_verified: true }).eq("id", user!.id);
     await refreshProfile();
-    setPhoneLoading(false);
-    setView("main");
-    setNewPhone(""); setOtp(""); setOtpSent(false);
+    setPhoneLoading(false); setView("main");
+    setNewPhone(""); setOtp("");
   }
 
-  // ── Phone change views ────────────────────────────────────────────────────
+  // ── Phone change screens ──────────────────────────────────────────────────
   if (view === "change-phone-enter") return (
     <div className="p-6 max-w-lg">
       <button onClick={() => { setView("main"); setPhoneError(""); setNewPhone(""); }}
@@ -169,7 +153,30 @@ export default function Account() {
     </div>
   );
 
-  // ── Main account view ─────────────────────────────────────────────────────
+  // ── Loading skeleton ──────────────────────────────────────────────────────
+  if (loading || !profile) return (
+    <div className="p-6 max-w-lg">
+      <div className="mb-6">
+        <div className="h-7 w-32 bg-gray-200 rounded animate-pulse mb-1" />
+        <div className="h-4 w-48 bg-gray-100 rounded animate-pulse" />
+      </div>
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
+        {[1,2,3].map(i => (
+          <div key={i}>
+            <div className="h-3 w-24 bg-gray-200 rounded animate-pulse mb-2" />
+            <div className="h-10 w-full bg-gray-100 rounded-xl animate-pulse" />
+          </div>
+        ))}
+        <div className="h-10 w-full bg-gray-200 rounded-xl animate-pulse" />
+      </div>
+    </div>
+  );
+
+  // ── Main view ─────────────────────────────────────────────────────────────
+  const initials = profile.full_name?.trim()
+    ? profile.full_name.trim().split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
+
   return (
     <div className="p-6 max-w-lg">
       <div className="mb-6">
@@ -178,7 +185,7 @@ export default function Account() {
       </div>
 
       {/* Subscription banner */}
-      {!isSubscribed && (
+      {!isSubscribed ? (
         <div className="mb-4 rounded-2xl p-4 flex items-center gap-3 border border-yellow-200 bg-yellow-50">
           <Crown className="h-5 w-5 text-yellow-600 flex-shrink-0" />
           <div className="flex-1">
@@ -189,8 +196,7 @@ export default function Account() {
             className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white flex-shrink-0"
             style={{ background: "#df0060" }}>Upgrade</button>
         </div>
-      )}
-      {isSubscribed && (
+      ) : (
         <div className="mb-4 rounded-2xl p-4 flex items-center gap-3 border border-green-200 bg-green-50">
           <Crown className="h-5 w-5 text-green-600 flex-shrink-0" />
           <div>
@@ -200,16 +206,26 @@ export default function Account() {
         </div>
       )}
 
+      {/* Avatar + name + role */}
+      <div className="flex flex-col items-center mb-5">
+        <div className="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold mb-2"
+          style={{ background: "#df0060" }}>
+          {initials}
+        </div>
+        <p className="text-base font-semibold text-gray-900">{profile.full_name || "—"}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{profile.phone}</p>
+        <span className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-pink-100 text-pink-700">
+          Seller
+        </span>
+      </div>
+
       <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
-        {/* Full Name */}
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Full Name</label>
           <input type="text" value={fullName} onChange={e => setFullName(e.target.value)}
             className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl outline-none focus:border-pink-300 transition"
             placeholder="Your full name" />
         </div>
-
-        {/* Email */}
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Email Address</label>
           <input type="email" value={email} onChange={e => setEmail(e.target.value)}
@@ -217,12 +233,10 @@ export default function Account() {
             placeholder="you@example.com" />
           <p className="text-xs text-gray-400 mt-1">Used for order notifications</p>
         </div>
-
-        {/* Phone — read-only with change button */}
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Phone Number</label>
           <div className="flex gap-2">
-            <input type="text" value={profile?.phone ?? ""} disabled
+            <input type="text" value={profile.phone ?? ""} disabled
               className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 text-gray-500" />
             <button onClick={() => { setView("change-phone-enter"); setPhoneError(""); }}
               className="px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition whitespace-nowrap">
