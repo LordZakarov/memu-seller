@@ -194,7 +194,7 @@ export default function Login() {
 
     const formatted = formatPhone(suPhone.trim());
 
-    // Check email uniqueness for this role
+    // Check email not already used for this role in our users table
     const { data: emailExists } = await supabase
       .from("users").select("id").eq("email", suEmail.trim()).eq("role", ROLE).maybeSingle();
     if (emailExists) {
@@ -202,14 +202,50 @@ export default function Login() {
       setLoading(false); return;
     }
 
-    // Update Supabase Auth email+password (OTP already created the auth user)
-    const { error: updateErr } = await supabase.auth.updateUser({
+    // Sign out the temporary OTP session — we'll create a proper email+password account
+    await supabase.auth.signOut();
+
+    // Create the real Supabase Auth account with email + password
+    // This is the account they'll use to sign in going forward
+    const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
       email: suEmail.trim(),
       password: suPassword,
+      options: { data: { phone: formatted } },
     });
-    if (updateErr) { setError(updateErr.message); setLoading(false); return; }
 
-    // Save profile via SECURITY DEFINER RPC
+    if (signUpErr) {
+      // Email already exists in Supabase Auth (could be a different role's account)
+      // That's fine — just sign in with that password then save the profile
+      if (signUpErr.message.toLowerCase().includes("already registered") ||
+          signUpErr.message.toLowerCase().includes("email")) {
+        const { data: siData, error: siErr } = await supabase.auth.signInWithPassword({
+          email: suEmail.trim(),
+          password: suPassword,
+        });
+        if (siErr) {
+          setError("This email is already registered with a different password. Please use a different email or sign in.");
+          setLoading(false); return;
+        }
+        // Signed in — now save the seller profile row under their auth user id
+        const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
+          p_full_name: suName.trim(),
+          p_email: suEmail.trim(),
+          p_phone: formatted,
+          p_role: ROLE,
+        });
+        if (rpcErr) { setError(rpcErr.message); setLoading(false); return; }
+        await refreshProfile();
+        setLoading(false);
+        navigate(from, { replace: true });
+        return;
+      }
+      setError(signUpErr.message);
+      setLoading(false); return;
+    }
+
+    if (!signUpData.user) { setError("Sign up failed, please try again."); setLoading(false); return; }
+
+    // Save profile row via SECURITY DEFINER RPC
     const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
       p_full_name: suName.trim(),
       p_email: suEmail.trim(),
