@@ -50,7 +50,7 @@ export default function Account() {
     // Check email uniqueness if changed
     if (email.trim() && email.trim() !== profile?.email) {
       const { data: exists } = await supabase
-        .from("users").select("id").eq("email", email.trim()).maybeSingle();
+        .from("users").select("id").eq("email", email.trim()).eq("role", "seller").neq("id", user!.id).maybeSingle();
       if (exists) {
         setSaveError("This email is already used by another account.");
         setSaving(false); return;
@@ -78,7 +78,7 @@ export default function Account() {
 
     // Check not already taken
     const { data: exists } = await supabase
-      .from("users").select("id").eq("phone", formatted).maybeSingle();
+      .from("users").select("id").eq("phone", formatted).eq("role", "seller").maybeSingle();
     if (exists) {
       setPhoneError("This number is already registered to another account.");
       setPhoneLoading(false); return;
