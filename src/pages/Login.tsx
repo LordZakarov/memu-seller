@@ -138,13 +138,34 @@ export default function Login() {
 
     if (isPhone) {
       const fmt = formatPhone(id);
-      const { data } = await supabase
+      // Look up their profile to get email
+      const { data: profile } = await supabase
         .from("sellers").select("email").eq("phone", fmt).maybeSingle();
-      if (!data?.email) {
+
+      if (!profile) {
         setError("No account found for this number. Please sign up.");
         setLoading(false); return;
       }
-      loginEmail = data.email;
+
+      if (!profile.email) {
+        // No email on their account — password login not possible.
+        // Redirect them to OTP sign-in automatically.
+        setOtpPhone(fmt.replace("+960", ""));
+        setLoading(false);
+        setError("This account has no email set. Use OTP to sign in.");
+        go("signin-otp-phone");
+        return;
+      }
+
+      loginEmail = profile.email;
+    } else {
+      // Email provided — verify it exists in our table
+      const { data: profile } = await supabase
+        .from("sellers").select("id").eq("email", id).maybeSingle();
+      if (!profile) {
+        setError("No account found for this email. Please sign up.");
+        setLoading(false); return;
+      }
     }
 
     const { error: e } = await supabase.auth.signInWithPassword({ email: loginEmail, password: siPw });
@@ -198,7 +219,7 @@ export default function Login() {
     // Check phone unique for this role
     const { data: phoneEx } = await supabase
       .from("sellers").select("id").eq("phone", fmt).maybeSingle();
-    if (phoneEx) { setError(`This number already has an account. Sign in instead.`); setLoading(false); return; }
+    if (phoneEx) { setError("This number already has an account. Use Sign In below, or use OTP to sign in."); setLoading(false); return; }
 
     // Check email unique for this role
     const { data: emailEx } = await supabase
