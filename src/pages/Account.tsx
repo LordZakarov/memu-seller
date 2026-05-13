@@ -188,7 +188,12 @@ export default function Account() {
       <h1 className="text-xl font-semibold text-gray-900 mb-4">Account</h1>
       <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center space-y-3">
         <p className="text-sm text-gray-500">Could not load your profile.</p>
-        <button onClick={refreshProfile} className="text-sm font-medium" style={{ color: "#df0060" }}>Retry</button>
+        <button
+          onClick={async () => { await refreshProfile(); }}
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white"
+          style={{ background: "#df0060" }}>
+          Retry
+        </button>
       </div>
       <button onClick={async () => { await signOut(); navigate("/login"); }}
         className="w-full mt-4 py-2.5 rounded-xl text-sm font-medium text-red-600 border border-red-200 bg-white flex items-center justify-center gap-2 hover:bg-red-50 transition">
