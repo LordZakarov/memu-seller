@@ -139,7 +139,7 @@ export default function Login() {
     if (isPhone) {
       const fmt = formatPhone(id);
       const { data } = await supabase
-        .from("users").select("email").eq("phone", fmt).eq("role", ROLE).maybeSingle();
+        .from("sellers").select("email").eq("phone", fmt).maybeSingle();
       if (!data?.email) {
         setError("No account found for this number. Please sign up.");
         setLoading(false); return;
@@ -164,7 +164,7 @@ export default function Login() {
     if (fmt.replace(/\D/g, "").length < 7) { setError("Enter a valid phone number"); return; }
     setLoading(true); setError("");
     const { data: ex } = await supabase
-      .from("users").select("id").eq("phone", fmt).eq("role", ROLE).maybeSingle();
+      .from("sellers").select("id").eq("phone", fmt).maybeSingle();
     if (!ex) { setError("No account found for this number."); setLoading(false); return; }
     const { error: e } = await supabase.auth.signInWithOtp({ phone: fmt });
     setLoading(false);
@@ -197,12 +197,12 @@ export default function Login() {
 
     // Check phone unique for this role
     const { data: phoneEx } = await supabase
-      .from("users").select("id").eq("phone", fmt).eq("role", ROLE).maybeSingle();
-    if (phoneEx) { setError("This number already has a seller account. Sign in instead."); setLoading(false); return; }
+      .from("sellers").select("id").eq("phone", fmt).maybeSingle();
+    if (phoneEx) { setError(`This number already has an account. Sign in instead.`); setLoading(false); return; }
 
     // Check email unique for this role
     const { data: emailEx } = await supabase
-      .from("users").select("id").eq("email", suEmail.trim()).eq("role", ROLE).maybeSingle();
+      .from("sellers").select("id").eq("email", suEmail.trim()).maybeSingle();
     if (emailEx) { setError("This email already has an account. Sign in instead."); setLoading(false); return; }
 
     // Send OTP to verify phone
@@ -239,11 +239,10 @@ export default function Login() {
       }
 
       // Step 3: Save profile for this specific role
-      const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
+      const { error: rpcErr } = await supabase.rpc("upsert_seller_profile", {
         p_full_name: suName.trim(),
         p_email: suEmail.trim(),
         p_phone: fmt,
-        p_role: ROLE,
       });
       if (rpcErr) { setError("Failed to save profile: " + rpcErr.message); setLoading(false); return; }
 
@@ -267,7 +266,7 @@ export default function Login() {
     setLoading(true); setError("");
 
     const { data: user } = await supabase
-      .from("users").select("id,email").eq("phone", fmt).eq("role", ROLE).maybeSingle();
+      .from("sellers").select("id,email").eq("phone", fmt).maybeSingle();
     if (!user) { setError("No account found for this number."); setLoading(false); return; }
 
     const { error: e } = await supabase.auth.signInWithOtp({ phone: fmt });
