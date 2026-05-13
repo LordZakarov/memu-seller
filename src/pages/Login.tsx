@@ -152,7 +152,6 @@ export default function Login() {
       );
       setLoading(false); return;
     }
-    await refreshProfile();
     setLoading(false);
     navigate(from, { replace: true });
   }
@@ -178,7 +177,6 @@ export default function Login() {
     const fmt = formatPhone(otpPhone.trim());
     const { error: e } = await supabase.auth.verifyOtp({ phone: fmt, token: otpCode, type: "sms" });
     if (e) { setError(e.message); setLoading(false); return; }
-    await refreshProfile();
     setLoading(false);
     navigate(from, { replace: true });
   }
@@ -229,15 +227,13 @@ export default function Login() {
       if (rpcErr) { setError("Failed to save profile: " + rpcErr.message); setLoading(false); return; }
 
       // Step 3: Set password on the current OTP session
-      // User is already signed in via OTP — set password so they can
-      // use phone+password next time
-      const { error: pwErr } = await supabase.auth.updateUser({ password: suPw });
-      if (pwErr) console.warn("password warn:", pwErr.message);
+      // Use timeout so it never hangs
+      await Promise.race([
+        supabase.auth.updateUser({ password: suPw }),
+        new Promise(r => setTimeout(r, 2000)),
+      ]);
 
-      // Step 4: User is already logged in via OTP session — navigate now
-      // Email+password sign-in will work once they go through forgot-password
-      // to reset, or via OTP which always works
-      await refreshProfile();
+      // Step 4: Navigate — AuthProvider handles profile loading via onAuthStateChange
       setLoading(false);
       navigate(from, { replace: true });
 
@@ -278,7 +274,6 @@ export default function Login() {
     setLoading(true); setError("");
     const { error: e } = await supabase.auth.updateUser({ password: fpPw });
     if (e) { setError(e.message); setLoading(false); return; }
-    await refreshProfile();
     setLoading(false);
     navigate(from, { replace: true });
   }
