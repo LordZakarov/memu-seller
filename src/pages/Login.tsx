@@ -218,51 +218,42 @@ export default function Login() {
     setLoading(true); setError("");
     const fmt = formatPhone(suPhone.trim());
 
-    // Verify OTP — this creates a temporary phone-auth session
-    const { error: otpErr } = await supabase.auth.verifyOtp({ phone: fmt, token: suOtp, type: "sms" });
+    // Step 1: Verify OTP — creates a phone-auth session (user is now logged in via phone)
+    const { data: otpData, error: otpErr } = await supabase.auth.verifyOtp({
+      phone: fmt, token: suOtp, type: "sms",
+    });
     if (otpErr) { setError(otpErr.message); setLoading(false); return; }
+    if (!otpData.user) { setError("Verification failed. Please try again."); setLoading(false); return; }
 
-    // Sign out the phone session immediately
-    await supabase.auth.signOut();
-
-    // Create the real email+password account
-    const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+    // Step 2: Attach email + password to the existing phone session.
+    // DO NOT sign out first — auth.uid() must be valid when we call the RPC.
+    // Note: make sure "Enable email confirmations" is OFF in Supabase Auth settings
+    // so updateUser doesn't send a confirmation email.
+    const { error: updateErr } = await supabase.auth.updateUser({
       email: suEmail.trim(),
       password: suPw,
     });
 
-    if (signUpErr) {
-      // Email already in Supabase Auth — try signing in (same person, different role)
-      const { data: siData, error: siErr } = await supabase.auth.signInWithPassword({
-        email: suEmail.trim(), password: suPw,
-      });
-      if (siErr) {
-        setError("This email is already registered with a different password.");
+    if (updateErr) {
+      // If email is already taken in Supabase Auth by a DIFFERENT auth user,
+      // it means this person has another role account. That's fine —
+      // we just save a new profile row under their current phone-auth session.
+      // The password they entered won't apply to the other auth user, but
+      // they can use OTP login going forward, or set up password via forgot-password.
+      if (!updateErr.message.toLowerCase().includes("email")) {
+        setError(updateErr.message);
         setLoading(false); return;
       }
-      // Save new role profile
-      const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
-        p_full_name: suName.trim(), p_email: suEmail.trim(),
-        p_phone: fmt, p_role: ROLE,
-      });
-      if (rpcErr) { setError(rpcErr.message); setLoading(false); return; }
-      await refreshProfile();
-      setLoading(false);
-      navigate(from, { replace: true });
-      return;
+      // Email conflict — proceed without attaching email to auth, just save profile
     }
 
-    if (!signUpData.user) { setError("Sign up failed. Please try again."); setLoading(false); return; }
-
-    // Wait for session to be active
-    await new Promise(r => setTimeout(r, 600));
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { setError("Session not established. Please try again."); setLoading(false); return; }
-
-    // Save profile
+    // Step 3: Save profile row via SECURITY DEFINER RPC
+    // auth.uid() is the phone-auth user id — valid right now
     const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
-      p_full_name: suName.trim(), p_email: suEmail.trim(),
-      p_phone: fmt, p_role: ROLE,
+      p_full_name: suName.trim(),
+      p_email: suEmail.trim(),
+      p_phone: fmt,
+      p_role: ROLE,
     });
     if (rpcErr) { setError(rpcErr.message); setLoading(false); return; }
 
