@@ -39,14 +39,7 @@ export default function Account() {
     document.title = "Account — Memu Seller";
   }, []);
 
-  // One-time retry if user is set but profile didn't load
-  const [retried, setRetried] = useState(false);
-  useEffect(() => {
-    if (user && !profile && !loading && !retried) {
-      setRetried(true);
-      refreshProfile();
-    }
-  }, [user, profile, loading]);
+
 
   useEffect(() => {
     if (profile) {
@@ -75,11 +68,11 @@ export default function Account() {
 
     if (email.trim() && email.trim() !== profile?.email) {
       const { data: ex } = await supabase
-        .from("users").select("id").eq("email", email.trim()).eq("role", "seller").neq("id", user!.id).maybeSingle();
+        .from("sellers").select("id").eq("email", email.trim()).neq("id", user!.id).maybeSingle();
       if (ex) { setSaveErr("This email is already used by another account."); setSaving(false); return; }
     }
 
-    const { error } = await supabase.rpc("update_my_profile", {
+    const { error } = await supabase.rpc("update_seller_profile", {
       p_full_name: name.trim(),
       p_email: email.trim() || null,
     });
@@ -96,7 +89,7 @@ export default function Account() {
     if (fmt.replace(/\D/g, "").length < 7) { setPhoneErr("Enter a valid phone number"); return; }
     setPhoneLoading(true); setPhoneErr("");
     const { data: ex } = await supabase
-      .from("users").select("id").eq("phone", fmt).eq("role", "seller").maybeSingle();
+      .from("sellers").select("id").eq("phone", fmt).maybeSingle();
     if (ex) { setPhoneErr("This number is already registered."); setPhoneLoading(false); return; }
     const { error } = await supabase.auth.signInWithOtp({ phone: fmt });
     setPhoneLoading(false);
@@ -110,7 +103,7 @@ export default function Account() {
     const fmt = formatPhone(newPhone.trim());
     const { error } = await supabase.auth.verifyOtp({ phone: fmt, token: otp, type: "sms" });
     if (error) { setPhoneErr(error.message); setPhoneLoading(false); return; }
-    await supabase.from("users").update({ phone: fmt, phone_verified: true }).eq("id", user!.id);
+    await supabase.from("sellers").update({ phone: fmt, phone_verified: true }).eq("id", user!.id);
     await refreshProfile();
     setPhoneLoading(false);
     setView("main"); setNewPhone(""); setOtp("");
@@ -189,6 +182,10 @@ export default function Account() {
       <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
         {[1,2,3].map(i => <div key={i}><div className="h-3 w-20 bg-gray-200 rounded animate-pulse mb-2" /><div className="h-10 bg-gray-100 rounded-xl animate-pulse" /></div>)}
       </div>
+      <button onClick={async () => { await signOut(); navigate("/login"); }}
+        className="w-full py-2.5 rounded-xl text-sm font-medium text-red-600 border border-red-200 bg-white flex items-center justify-center gap-2 hover:bg-red-50 transition">
+        <LogOut className="h-4 w-4" /> Sign Out
+      </button>
     </div>
   );
 
