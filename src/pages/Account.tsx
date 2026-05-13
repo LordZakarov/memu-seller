@@ -39,6 +39,15 @@ export default function Account() {
     document.title = "Account — Memu Seller";
   }, []);
 
+  // One-time retry if user is set but profile didn't load
+  const [retried, setRetried] = useState(false);
+  useEffect(() => {
+    if (user && !profile && !loading && !retried) {
+      setRetried(true);
+      refreshProfile();
+    }
+  }, [user, profile, loading]);
+
   useEffect(() => {
     if (profile) {
       setName(profile.full_name ?? "");
