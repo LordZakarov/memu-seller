@@ -219,26 +219,14 @@ export default function Login() {
     const fmt = formatPhone(suPhone.trim());
 
     try {
-      // Step 1: Verify OTP
+      // Step 1: Verify OTP — establishes session
       const { data: otpData, error: otpErr } = await supabase.auth.verifyOtp({
         phone: fmt, token: suOtp, type: "sms",
       });
       if (otpErr) { setError(otpErr.message); setLoading(false); return; }
       if (!otpData.user) { setError("Verification failed. Please try again."); setLoading(false); return; }
 
-      // Step 2: Wait for session to fully propagate
-      await new Promise(r => setTimeout(r, 500));
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
-        await new Promise(r => setTimeout(r, 1500));
-        const { data: retryData } = await supabase.auth.getSession();
-        if (!retryData.session) {
-          setError("Could not establish session. Please try again.");
-          setLoading(false); return;
-        }
-      }
-
-      // Step 3: Save profile for this specific role
+      // Step 2: Save profile immediately — session is active right after verifyOtp
       const { error: rpcErr } = await supabase.rpc("upsert_seller_profile", {
         p_full_name: suName.trim(),
         p_email: suEmail.trim(),
@@ -246,10 +234,15 @@ export default function Login() {
       });
       if (rpcErr) { setError("Failed to save profile: " + rpcErr.message); setLoading(false); return; }
 
-      // Step 4: Attach password — non-fatal if fails
-      await supabase.auth.updateUser({ password: suPw });
+      // Step 3: Set password using a race-safe approach
+      // Use Promise.race with a 3 second timeout so it never hangs
+      const pwResult = await Promise.race([
+        supabase.auth.updateUser({ password: suPw }),
+        new Promise<{ error: null }>(r => setTimeout(() => r({ error: null }), 3000)),
+      ]);
+      // Password is non-fatal — user can reset via OTP if it didn't save
 
-      // Step 5: Navigate
+      // Step 4: Navigate
       setLoading(false);
       navigate(from, { replace: true });
 
