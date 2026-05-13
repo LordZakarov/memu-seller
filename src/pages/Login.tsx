@@ -219,15 +219,29 @@ export default function Login() {
     const fmt = formatPhone(suPhone.trim());
 
     try {
-      // Step 1: Verify OTP — session is now active, auth.uid() is valid
+      // Step 1: Verify OTP
       const { data: otpData, error: otpErr } = await supabase.auth.verifyOtp({
         phone: fmt, token: suOtp, type: "sms",
       });
       if (otpErr) { setError(otpErr.message); setLoading(false); return; }
       if (!otpData.user) { setError("Verification failed. Please try again."); setLoading(false); return; }
 
-      // Step 2: Save profile IMMEDIATELY while OTP session is valid
-      // Must happen before updateUser() which can trigger a session refresh event
+      // Step 2: Confirm session is fully active before calling RPC
+      let uid = otpData.user.id;
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        await new Promise(r => setTimeout(r, 1000));
+        const { data: retryData } = await supabase.auth.getSession();
+        if (!retryData.session) {
+          setError("Could not establish session. Please try again.");
+          setLoading(false); return;
+        }
+        uid = retryData.session.user.id;
+      } else {
+        uid = sessionData.session.user.id;
+      }
+
+      // Step 3: Save profile
       const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
         p_full_name: suName.trim(),
         p_email: suEmail.trim(),
@@ -236,10 +250,10 @@ export default function Login() {
       });
       if (rpcErr) { setError("Failed to save profile: " + rpcErr.message); setLoading(false); return; }
 
-      // Step 3: Attach password after profile saved — non-fatal if fails
+      // Step 4: Attach password — non-fatal if fails
       await supabase.auth.updateUser({ password: suPw });
 
-      // Step 4: Navigate
+      // Step 5: Navigate
       setLoading(false);
       navigate(from, { replace: true });
 
