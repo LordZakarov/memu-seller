@@ -68,11 +68,11 @@ export default function Account() {
 
     if (email.trim() && email.trim() !== profile?.email) {
       const { data: ex } = await supabase
-        .from("sellers").select("id").eq("email", email.trim()).neq("id", user!.id).maybeSingle();
+        .from("users").select("id").eq("email", email.trim()).neq("id", user!.id).maybeSingle();
       if (ex) { setSaveErr("This email is already used by another account."); setSaving(false); return; }
     }
 
-    const { error } = await supabase.rpc("update_seller_profile", {
+    const { error } = await supabase.rpc("update_my_profile", {
       p_full_name: name.trim(),
       p_email: email.trim() || null,
     });
@@ -89,7 +89,7 @@ export default function Account() {
     if (fmt.replace(/\D/g, "").length < 7) { setPhoneErr("Enter a valid phone number"); return; }
     setPhoneLoading(true); setPhoneErr("");
     const { data: ex } = await supabase
-      .from("sellers").select("id").eq("phone", fmt).maybeSingle();
+      .from("users").select("id").eq("phone", fmt).maybeSingle();
     if (ex) { setPhoneErr("This number is already registered."); setPhoneLoading(false); return; }
     const { error } = await supabase.auth.signInWithOtp({ phone: fmt });
     setPhoneLoading(false);
@@ -103,7 +103,7 @@ export default function Account() {
     const fmt = formatPhone(newPhone.trim());
     const { error } = await supabase.auth.verifyOtp({ phone: fmt, token: otp, type: "sms" });
     if (error) { setPhoneErr(error.message); setPhoneLoading(false); return; }
-    await supabase.from("sellers").update({ phone: fmt, phone_verified: true }).eq("id", user!.id);
+    await supabase.from("users").update({ phone: fmt, phone_verified: true }).eq("id", user!.id);
     await refreshProfile();
     setPhoneLoading(false);
     setView("main"); setNewPhone(""); setOtp("");
