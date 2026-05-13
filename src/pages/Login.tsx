@@ -125,22 +125,31 @@ export default function Login() {
 
   function go(s: Screen) { setScreen(s); setError(""); }
 
-  // ── SIGN IN with email+password ───────────────────────────────────────────
+  // ── SIGN IN with phone+password or email+password ───────────────────────
   async function handleSignIn() {
-    if (!siEmail.trim() || !siPw) { setError("Enter your email and password"); return; }
+    if (!siEmail.trim() || !siPw) { setError("Enter your phone/email and password"); return; }
     setLoading(true); setError("");
 
-    const { error: e } = await supabase.auth.signInWithPassword({
-      email: siEmail.trim(),
-      password: siPw,
-    });
+    const id = siEmail.trim();
+    const isPhone = /^\d/.test(id) || id.startsWith("+");
 
-    if (e) {
-      setError(e.message.includes("Invalid login credentials")
-        ? "Incorrect email or password. Try again or use OTP."
-        : e.message.includes("Email not confirmed")
-        ? "Please verify your email first, or use OTP to sign in."
-        : e.message);
+    let authResult;
+    if (isPhone) {
+      // Sign in with phone+password directly — no email lookup needed
+      const fmt = formatPhone(id);
+      authResult = await supabase.auth.signInWithPassword({ phone: fmt, password: siPw });
+    } else {
+      // Sign in with email+password
+      authResult = await supabase.auth.signInWithPassword({ email: id, password: siPw });
+    }
+
+    if (authResult.error) {
+      const msg = authResult.error.message;
+      setError(
+        msg.includes("Invalid login credentials") ? "Incorrect phone/email or password. Try OTP instead." :
+        msg.includes("Email not confirmed") ? "Use OTP to sign in instead." :
+        msg
+      );
       setLoading(false); return;
     }
     await refreshProfile();
@@ -219,14 +228,11 @@ export default function Login() {
       });
       if (rpcErr) { setError("Failed to save profile: " + rpcErr.message); setLoading(false); return; }
 
-      // Step 3: Attach email+password to Supabase Auth
-      // This lets them sign in with email+password next time
-      // Requires Email provider ON + email confirmations OFF in Supabase Auth settings
-      const { error: updateErr } = await supabase.auth.updateUser({
-        email: suEmail.trim(),
-        password: suPw,
-      });
-      if (updateErr) console.warn("updateUser warn:", updateErr.message);
+      // Step 3: Set password on the phone-auth session
+      // signInWithPassword({ phone, password }) will work after this
+      // Email is stored in users table only — no Supabase Auth email needed
+      const { error: pwErr } = await supabase.auth.updateUser({ password: suPw });
+      if (pwErr) console.warn("password update warn:", pwErr.message);
 
       // Step 4: Done
       await refreshProfile();
@@ -294,11 +300,11 @@ export default function Login() {
             </div>
             <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1.5">Email Address</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1.5">Phone or Email</label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input type="email" value={siEmail} onChange={e => setSiEmail(e.target.value)}
-                    placeholder="you@example.com" autoFocus className={inputCls} />
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input type="text" value={siEmail} onChange={e => setSiEmail(e.target.value)}
+                    placeholder="7XXXXXXX or you@example.com" autoFocus className={inputCls} />
                 </div>
               </div>
               <PwInput value={siPw} onChange={setSiPw} onEnter={handleSignIn} label="Password" />
