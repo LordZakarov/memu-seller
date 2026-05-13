@@ -7,7 +7,6 @@ type Profile = {
   full_name: string;
   phone: string | null;
   email: string | null;
-  role: string;
   is_active: boolean;
 };
 
@@ -32,13 +31,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const initialised = useRef(false);
 
   async function fetchProfile(uid: string): Promise<Profile | null> {
-    // Only select columns that actually exist on the users table
-    // No subscription_status — that's in seller_subscriptions table
     const { data, error } = await supabase
-      .from("users")
-      .select("id,full_name,phone,email,role,is_active")
+      .from("sellers")
+      .select("id,full_name,phone,email,is_active")
       .eq("id", uid)
-      .eq("role", "seller")
       .maybeSingle();
     if (error) console.error("fetchProfile error:", error.message);
     return data ?? null;
@@ -93,14 +89,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = async () => {
     if (user) {
-      setLoading(true);
       const [p, sub] = await Promise.all([
         fetchProfile(user.id),
         fetchSubscription(user.id),
       ]);
       setProfile(p);
       setIsSubscribed(sub);
-      setLoading(false);
     }
   };
 
