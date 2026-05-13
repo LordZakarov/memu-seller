@@ -220,7 +220,7 @@ export default function Login() {
       if (otpErr) { setError(otpErr.message); setLoading(false); return; }
       if (!otpData.user) { setError("Verification failed. Please try again."); setLoading(false); return; }
 
-      // Step 2: Save profile row immediately (session is active)
+      // Step 2: Save profile row while phone session is active
       const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
         p_full_name: suName.trim(),
         p_email: suEmail.trim(),
@@ -228,13 +228,35 @@ export default function Login() {
       });
       if (rpcErr) { setError("Failed to save profile: " + rpcErr.message); setLoading(false); return; }
 
-      // Step 3: Set password on the phone-auth session
-      // signInWithPassword({ phone, password }) will work after this
-      // Email is stored in users table only — no Supabase Auth email needed
-      const { error: pwErr } = await supabase.auth.updateUser({ password: suPw });
-      if (pwErr) console.warn("password update warn:", pwErr.message);
+      // Step 3: Sign out the phone-OTP session
+      await supabase.auth.signOut();
 
-      // Step 4: Done
+      // Step 4: Create a proper email+password auth account
+      // This is the account they'll use to sign in going forward
+      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+        email: suEmail.trim(),
+        password: suPw,
+        options: { data: { phone: fmt } },
+      });
+
+      if (signUpErr) {
+        // Email already exists in Supabase Auth — sign in instead
+        const { error: siErr } = await supabase.auth.signInWithPassword({
+          email: suEmail.trim(),
+          password: suPw,
+        });
+        if (siErr) {
+          setError("Account created but could not sign in. Please use the sign-in page.");
+          setLoading(false); return;
+        }
+      } else if (!signUpData.session) {
+        // signUp succeeded but no session = email confirmation required
+        // This means "Confirm email" is ON in Supabase — user must turn it off
+        setError("Account created! Email confirmation required — please check your email, or disable email confirmations in Supabase Auth settings.");
+        setLoading(false); return;
+      }
+
+      // Step 5: Done — signed in with email+password session
       await refreshProfile();
       setLoading(false);
       navigate(from, { replace: true });
