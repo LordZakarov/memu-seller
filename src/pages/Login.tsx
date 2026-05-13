@@ -225,30 +225,17 @@ export default function Login() {
     if (otpErr) { setError(otpErr.message); setLoading(false); return; }
     if (!otpData.user) { setError("Verification failed. Please try again."); setLoading(false); return; }
 
-    // Step 2: Attach email + password to the existing phone session.
-    // DO NOT sign out first — auth.uid() must be valid when we call the RPC.
-    // Note: make sure "Enable email confirmations" is OFF in Supabase Auth settings
-    // so updateUser doesn't send a confirmation email.
-    const { error: updateErr } = await supabase.auth.updateUser({
-      email: suEmail.trim(),
-      password: suPw,
-    });
-
-    if (updateErr) {
-      // If email is already taken in Supabase Auth by a DIFFERENT auth user,
-      // it means this person has another role account. That's fine —
-      // we just save a new profile row under their current phone-auth session.
-      // The password they entered won't apply to the other auth user, but
-      // they can use OTP login going forward, or set up password via forgot-password.
-      if (!updateErr.message.toLowerCase().includes("email")) {
-        setError(updateErr.message);
-        setLoading(false); return;
-      }
-      // Email conflict — proceed without attaching email to auth, just save profile
+    // Step 2: Attach password only to the phone session — NOT email.
+    // Adding email via updateUser triggers Supabase email confirmation which
+    // invalidates the session. We store email in our users table only.
+    const { error: pwErr } = await supabase.auth.updateUser({ password: suPw });
+    if (pwErr && !pwErr.message.toLowerCase().includes("same password")) {
+      setError(pwErr.message);
+      setLoading(false); return;
     }
 
-    // Step 3: Save profile row via SECURITY DEFINER RPC
-    // auth.uid() is the phone-auth user id — valid right now
+    // Step 3: Save full profile via SECURITY DEFINER RPC
+    // auth.uid() is valid — session is still active from OTP verify
     const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
       p_full_name: suName.trim(),
       p_email: suEmail.trim(),
