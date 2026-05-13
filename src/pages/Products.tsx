@@ -1,19 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/auth/AuthProvider";
-import { formatMVR, formatDate } from "@/lib/utils";
-import { Loader2, Plus, Pencil, Trash2, X, Save, Package } from "lucide-react";
+import { formatDate } from "@/lib/utils";
+import { Loader2, Plus, Pencil, Trash2, X, Save, Package, ImagePlus, XCircle } from "lucide-react";
 
 // ── Types matching the actual `products` table schema ──────────────────────
 type Product = {
   id: string;
   title: string;
   description: string | null;
-  price_mvr: number;          // was: price
-  stock: number;              // was: stock_quantity
+  price_mvr: number;
+  stock: number;
   category: string;
-  approval_status: string;    // was: status
+  approval_status: string;
   is_active: boolean;
+  images: string[];
   created_at: string;
 };
 
@@ -44,6 +45,13 @@ export default function Products() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  // Image state
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [existingImages, setExistingImages] = useState<string[]>([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     document.title = "Products — Memu Seller";
     if (user) load();
@@ -53,13 +61,69 @@ export default function Products() {
     setLoading(true);
     const { data, error: err } = await supabase
       .from("products")
-      .select("id,title,description,price_mvr,stock,category,approval_status,is_active,created_at")
+      .select("id,title,description,price_mvr,stock,category,approval_status,is_active,images,created_at")
       .eq("seller_id", user!.id)
       .order("created_at", { ascending: false });
 
     if (err) console.error("Products load error:", err.message);
     setProducts(data ?? []);
     setLoading(false);
+  }
+
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+
+    const totalAllowed = 5 - existingImages.length - imageFiles.length;
+    const toAdd = files.slice(0, totalAllowed);
+
+    setImageFiles(prev => [...prev, ...toAdd]);
+    toAdd.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        setImagePreviews(prev => [...prev, ev.target?.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    e.target.value = "";
+  }
+
+  function removeNewImage(index: number) {
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function removeExistingImage(index: number) {
+    setExistingImages(prev => prev.filter((_, i) => i !== index));
+  }
+
+  async function uploadImages(productId: string): Promise<string[]> {
+    if (!imageFiles.length) return [];
+    setUploadingImages(true);
+    const urls: string[] = [];
+
+    for (const file of imageFiles) {
+      const ext = file.name.split(".").pop();
+      const path = `${user!.id}/${productId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("product-images")
+        .upload(path, file, { upsert: false });
+
+      if (upErr) {
+        console.error("Image upload error:", upErr.message);
+        continue;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("product-images")
+        .getPublicUrl(path);
+
+      if (urlData?.publicUrl) urls.push(urlData.publicUrl);
+    }
+
+    setUploadingImages(false);
+    return urls;
   }
 
   async function save() {
@@ -69,51 +133,65 @@ export default function Products() {
     }
     setSaving(true); setError("");
 
-    const payload = {
-      title: form.title.trim(),
-      description: form.description.trim() || null,
-      // price_mvr stored as actual MVR decimal (NOT laari) — matches schema type numeric
-      price_mvr: parseFloat(parseFloat(form.price_mvr).toFixed(2)),
-      stock: parseInt(form.stock) || 0,
-      category: form.category,
-      seller_id: user!.id,
-      // New listings go to pending approval
-      approval_status: "pending",
-      is_active: false,
-      // Required non-nullable fields
-      images: [],
-    };
-
     if (editId) {
+      const newUrls = await uploadImages(editId);
+      const allImages = [...existingImages, ...newUrls];
+
       const { error: e } = await supabase
         .from("products")
         .update({
-          title: payload.title,
-          description: payload.description,
-          price_mvr: payload.price_mvr,
-          stock: payload.stock,
-          category: payload.category,
+          title: form.title.trim(),
+          description: form.description.trim() || null,
+          price_mvr: parseFloat(parseFloat(form.price_mvr).toFixed(2)),
+          stock: parseInt(form.stock) || 0,
+          category: form.category,
+          images: allImages,
         })
         .eq("id", editId);
 
       if (e) { setError(e.message); setSaving(false); return; }
       setProducts(prev =>
-        prev.map(p => p.id === editId ? { ...p, ...payload } : p)
+        prev.map(p => p.id === editId
+          ? { ...p, title: form.title.trim(), description: form.description.trim() || null,
+              price_mvr: parseFloat(form.price_mvr), stock: parseInt(form.stock) || 0,
+              category: form.category, images: allImages }
+          : p)
       );
     } else {
-      const { data, error: e } = await supabase
+      // Insert first to get the ID, then upload images with the real ID
+      const { data: inserted, error: insertErr } = await supabase
         .from("products")
-        .insert(payload)
-        .select("id,title,description,price_mvr,stock,category,approval_status,is_active,created_at")
+        .insert({
+          title: form.title.trim(),
+          description: form.description.trim() || null,
+          price_mvr: parseFloat(parseFloat(form.price_mvr).toFixed(2)),
+          stock: parseInt(form.stock) || 0,
+          category: form.category,
+          seller_id: user!.id,
+          approval_status: "approved",
+          is_active: true,
+          images: [],
+        })
+        .select("id,title,description,price_mvr,stock,category,approval_status,is_active,images,created_at")
         .single();
 
-      if (e) { setError(e.message); setSaving(false); return; }
-      if (data) setProducts(prev => [data, ...prev]);
+      if (insertErr) { setError(insertErr.message); setSaving(false); return; }
+
+      if (imageFiles.length && inserted) {
+        const uploadedUrls = await uploadImages(inserted.id);
+        if (uploadedUrls.length) {
+          await supabase
+            .from("products")
+            .update({ images: uploadedUrls })
+            .eq("id", inserted.id);
+          inserted.images = uploadedUrls;
+        }
+      }
+
+      if (inserted) setProducts(prev => [inserted, ...prev]);
     }
 
-    setShowForm(false);
-    setForm(emptyForm);
-    setEditId(null);
+    closeForm();
     setSaving(false);
   }
 
@@ -132,6 +210,9 @@ export default function Products() {
       stock: p.stock?.toString() ?? "0",
       category: p.category ?? "Other",
     });
+    setExistingImages(p.images ?? []);
+    setImageFiles([]);
+    setImagePreviews([]);
     setEditId(p.id);
     setShowForm(true);
   }
@@ -141,6 +222,9 @@ export default function Products() {
     setEditId(null);
     setForm(emptyForm);
     setError("");
+    setImageFiles([]);
+    setImagePreviews([]);
+    setExistingImages([]);
   }
 
   const STATUS_COLORS: Record<string, string> = {
@@ -149,6 +233,8 @@ export default function Products() {
     rejected:  "bg-red-100 text-red-700",
     inactive:  "bg-gray-100 text-gray-600",
   };
+
+  const totalImages = existingImages.length + imageFiles.length;
 
   return (
     <div className="p-6">
@@ -159,7 +245,7 @@ export default function Products() {
           <p className="text-sm text-gray-500 mt-0.5">{products.length} listing{products.length !== 1 ? "s" : ""}</p>
         </div>
         <button
-          onClick={() => { setShowForm(true); setEditId(null); setForm(emptyForm); setError(""); }}
+          onClick={() => { setShowForm(true); setEditId(null); setForm(emptyForm); setError(""); setImageFiles([]); setImagePreviews([]); setExistingImages([]); }}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition hover:opacity-90"
           style={{ background: "#df0060" }}
         >
@@ -233,6 +319,65 @@ export default function Products() {
                 {CATEGORIES.map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
+
+            {/* ── Image Upload ───────────────────────────────────────────── */}
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-700 mb-2">
+                Photos <span className="text-gray-400 font-normal">({totalImages}/5)</span>
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                {/* Existing images (edit mode) */}
+                {existingImages.map((url, i) => (
+                  <div key={`existing-${i}`} className="relative w-20 h-20 rounded-lg overflow-hidden border border-gray-200 group">
+                    <img src={url} alt="" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeExistingImage(i)}
+                      className="absolute top-0.5 right-0.5 bg-white rounded-full shadow opacity-0 group-hover:opacity-100 transition"
+                    >
+                      <XCircle className="h-4 w-4 text-red-500" />
+                    </button>
+                  </div>
+                ))}
+
+                {/* New image previews */}
+                {imagePreviews.map((src, i) => (
+                  <div key={`new-${i}`} className="relative w-20 h-20 rounded-lg overflow-hidden border border-gray-200 group">
+                    <img src={src} alt="" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeNewImage(i)}
+                      className="absolute top-0.5 right-0.5 bg-white rounded-full shadow opacity-0 group-hover:opacity-100 transition"
+                    >
+                      <XCircle className="h-4 w-4 text-red-500" />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Add photo button */}
+                {totalImages < 5 && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center gap-1 text-gray-400 hover:border-pink-300 hover:text-pink-400 transition"
+                  >
+                    <ImagePlus className="h-5 w-5" />
+                    <span className="text-xs">Add</span>
+                  </button>
+                )}
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleImageSelect}
+              />
+              <p className="text-xs text-gray-400 mt-1.5">Up to 5 photos. JPG, PNG or WEBP.</p>
+            </div>
           </div>
 
           {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
@@ -240,12 +385,12 @@ export default function Products() {
           <div className="flex gap-2 mt-4">
             <button
               onClick={save}
-              disabled={saving}
+              disabled={saving || uploadingImages}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-60 transition"
               style={{ background: "#df0060" }}
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {saving ? "Saving…" : editId ? "Update" : "Add Product"}
+              {(saving || uploadingImages) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {uploadingImages ? "Uploading photos…" : saving ? "Saving…" : editId ? "Update" : "Add Product"}
             </button>
             <button
               onClick={closeForm}
@@ -282,8 +427,19 @@ export default function Products() {
               {products.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50 transition">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900 max-w-xs truncate">{p.title}</div>
-                    <div className="text-xs text-gray-400 capitalize">{p.category}</div>
+                    <div className="flex items-center gap-3">
+                      {p.images?.[0] ? (
+                        <img src={p.images[0]} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-gray-100" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                          <Package className="h-4 w-4 text-gray-400" />
+                        </div>
+                      )}
+                      <div>
+                        <div className="font-medium text-gray-900 max-w-xs truncate">{p.title}</div>
+                        <div className="text-xs text-gray-400 capitalize">{p.category}</div>
+                      </div>
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-gray-900">
                     {p.price_mvr != null ? `MVR ${Number(p.price_mvr).toFixed(2)}` : "—"}
