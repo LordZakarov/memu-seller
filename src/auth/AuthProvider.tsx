@@ -74,7 +74,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (!initialised.current) return;
+      setLoading(true);
       await loadSession(newSession);
+      setLoading(false);
     });
     supabase.auth.getSession().then(async ({ data }) => {
       await loadSession(data.session);
@@ -91,12 +93,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = async () => {
     if (user) {
+      setLoading(true);
       const [p, sub] = await Promise.all([
         fetchProfile(user.id),
         fetchSubscription(user.id),
       ]);
       setProfile(p);
       setIsSubscribed(sub);
+      setLoading(false);
     }
   };
 
