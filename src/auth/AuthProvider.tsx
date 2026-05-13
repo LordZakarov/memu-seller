@@ -2,20 +2,19 @@ import { createContext, useContext, useEffect, useState, useRef, type ReactNode 
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
-type SellerProfile = {
+type Profile = {
   id: string;
   full_name: string;
-  phone: string;
+  phone: string | null;
   email: string | null;
   role: string;
   is_active: boolean;
-  subscription_status: string | null;
 };
 
 type AuthState = {
   session: Session | null;
   user: User | null;
-  profile: SellerProfile | null;
+  profile: Profile | null;
   loading: boolean;
   isSubscribed: boolean;
   signOut: () => Promise<void>;
@@ -27,72 +26,82 @@ const AuthContext = createContext<AuthState | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<SellerProfile | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  // Track if we've completed the initial session check
+  const [isSubscribed, setIsSubscribed] = useState(false);
   const initialised = useRef(false);
 
-  async function fetchProfile(uid: string): Promise<SellerProfile | null> {
-    const { data } = await supabase
+  async function fetchProfile(uid: string): Promise<Profile | null> {
+    // Only select columns that actually exist on the users table
+    // No subscription_status — that's in seller_subscriptions table
+    const { data, error } = await supabase
       .from("users")
-      .select("id,full_name,phone,email,role,is_active,subscription_status")
+      .select("id,full_name,phone,email,role,is_active")
       .eq("id", uid)
+      .eq("role", "seller")
       .maybeSingle();
+    if (error) console.error("fetchProfile error:", error.message);
     return data ?? null;
+  }
+
+  async function fetchSubscription(uid: string): Promise<boolean> {
+    const { data } = await supabase
+      .from("seller_subscriptions")
+      .select("id")
+      .eq("seller_id", uid)
+      .eq("status", "active")
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    return !!data;
   }
 
   async function loadSession(s: Session | null) {
     setSession(s);
     setUser(s?.user ?? null);
     if (s?.user) {
-      const p = await fetchProfile(s.user.id);
+      const [p, sub] = await Promise.all([
+        fetchProfile(s.user.id),
+        fetchSubscription(s.user.id),
+      ]);
       setProfile(p);
+      setIsSubscribed(sub);
     } else {
       setProfile(null);
+      setIsSubscribed(false);
     }
   }
 
   useEffect(() => {
-    // 1. Subscribe to auth changes FIRST so we don't miss events
-    const { data: sub } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      // Skip INITIAL_SESSION — we handle that below with getSession()
-      // Only process subsequent events (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, etc.)
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (!initialised.current) return;
       await loadSession(newSession);
     });
-
-    // 2. Then do the one-time initial session hydration
     supabase.auth.getSession().then(async ({ data }) => {
       await loadSession(data.session);
       initialised.current = true;
       setLoading(false);
     });
-
     return () => { sub.subscription.unsubscribe(); };
   }, []);
 
   const signOut = async () => {
     await supabase.auth.signOut();
-    setProfile(null);
-    setSession(null);
-    setUser(null);
+    setProfile(null); setSession(null); setUser(null); setIsSubscribed(false);
   };
 
   const refreshProfile = async () => {
     if (user) {
-      const p = await fetchProfile(user.id);
+      const [p, sub] = await Promise.all([
+        fetchProfile(user.id),
+        fetchSubscription(user.id),
+      ]);
       setProfile(p);
+      setIsSubscribed(sub);
     }
   };
 
-  const isSubscribed = profile?.subscription_status === "active";
-
   return (
-    <AuthContext.Provider value={{
-      session, user, profile, loading,
-      isSubscribed,
-      signOut, refreshProfile,
-    }}>
+    <AuthContext.Provider value={{ session, user, profile, loading, isSubscribed, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
