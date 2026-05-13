@@ -198,7 +198,7 @@ export default function Login() {
     // Check phone unique for this role
     const { data: phoneEx } = await supabase
       .from("users").select("id").eq("phone", fmt).eq("role", ROLE).maybeSingle();
-    if (phoneEx) { setError("This phone number already has an account. Sign in instead."); setLoading(false); return; }
+    if (phoneEx) { setError("This number already has a seller account. Sign in instead."); setLoading(false); return; }
 
     // Check email unique for this role
     const { data: emailEx } = await supabase
@@ -226,22 +226,19 @@ export default function Login() {
       if (otpErr) { setError(otpErr.message); setLoading(false); return; }
       if (!otpData.user) { setError("Verification failed. Please try again."); setLoading(false); return; }
 
-      // Step 2: Confirm session is fully active before calling RPC
-      let uid = otpData.user.id;
+      // Step 2: Wait for session to fully propagate
+      await new Promise(r => setTimeout(r, 500));
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 1500));
         const { data: retryData } = await supabase.auth.getSession();
         if (!retryData.session) {
           setError("Could not establish session. Please try again.");
           setLoading(false); return;
         }
-        uid = retryData.session.user.id;
-      } else {
-        uid = sessionData.session.user.id;
       }
 
-      // Step 3: Save profile
+      // Step 3: Save profile for this specific role
       const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
         p_full_name: suName.trim(),
         p_email: suEmail.trim(),
