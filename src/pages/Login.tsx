@@ -103,7 +103,7 @@ export default function Login() {
   const [error, setError] = useState("");
 
   // Sign in fields
-  const [siEmail, setSiEmail] = useState("");
+  const [siPhone, setSiPhone] = useState("");
   const [siPw, setSiPw] = useState("");
 
   // Sign up fields
@@ -125,30 +125,19 @@ export default function Login() {
 
   function go(s: Screen) { setScreen(s); setError(""); }
 
-  // ── SIGN IN with phone+password or email+password ───────────────────────
+  // ── SIGN IN with phone+password ─────────────────────────────────────────
   async function handleSignIn() {
-    if (!siEmail.trim() || !siPw) { setError("Enter your phone/email and password"); return; }
+    if (!siPhone.trim() || !siPw) { setError("Enter your phone number and password"); return; }
     setLoading(true); setError("");
 
-    const id = siEmail.trim();
-    const isPhone = /^\d/.test(id) || id.startsWith("+");
+    const fmt = formatPhone(siPhone.trim());
+    const { error: e } = await supabase.auth.signInWithPassword({ phone: fmt, password: siPw });
 
-    let authResult;
-    if (isPhone) {
-      // Sign in with phone+password directly — no email lookup needed
-      const fmt = formatPhone(id);
-      authResult = await supabase.auth.signInWithPassword({ phone: fmt, password: siPw });
-    } else {
-      // Sign in with email+password
-      authResult = await supabase.auth.signInWithPassword({ email: id, password: siPw });
-    }
-
-    if (authResult.error) {
-      const msg = authResult.error.message;
+    if (e) {
       setError(
-        msg.includes("Invalid login credentials") ? "Incorrect phone/email or password. Try OTP instead." :
-        msg.includes("Email not confirmed") ? "Use OTP to sign in instead." :
-        msg
+        e.message.includes("Invalid login credentials")
+          ? "Incorrect password. Use OTP to sign in instead."
+          : e.message
       );
       setLoading(false); return;
     }
@@ -297,16 +286,17 @@ export default function Login() {
             </div>
             <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1.5">Phone or Email</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1.5">Phone Number</label>
                 <div className="relative">
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input type="text" value={siEmail} onChange={e => setSiEmail(e.target.value)}
-                    placeholder="7XXXXXXX or you@example.com" autoFocus className={inputCls} />
+                  <input type="tel" value={siPhone} onChange={e => setSiPhone(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleSignIn()}
+                    placeholder="7XXXXXXX" autoFocus className={inputCls} />
                 </div>
               </div>
               <PwInput value={siPw} onChange={setSiPw} onEnter={handleSignIn} label="Password" />
               <Err />
-              <button onClick={handleSignIn} disabled={loading || !siEmail.trim() || !siPw}
+              <button onClick={handleSignIn} disabled={loading || !siPhone.trim() || !siPw}
                 className={btnPrimary} style={{ background: "#df0060" }}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Sign In</span><ArrowRight className="h-4 w-4" /></>}
               </button>
