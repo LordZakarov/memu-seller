@@ -219,32 +219,27 @@ export default function Login() {
     const fmt = formatPhone(suPhone.trim());
 
     try {
-      // Step 1: Verify OTP
+      // Step 1: Verify OTP — session is now active, auth.uid() is valid
       const { data: otpData, error: otpErr } = await supabase.auth.verifyOtp({
         phone: fmt, token: suOtp, type: "sms",
       });
       if (otpErr) { setError(otpErr.message); setLoading(false); return; }
       if (!otpData.user) { setError("Verification failed. Please try again."); setLoading(false); return; }
 
-      // Step 2: Set password (ignore password-related soft errors on new accounts)
-      const { error: pwErr } = await supabase.auth.updateUser({ password: suPw });
-      if (pwErr) {
-        const msg = pwErr.message.toLowerCase();
-        if (!msg.includes("same password") && !msg.includes("password")) {
-          setError(pwErr.message); setLoading(false); return;
-        }
-      }
-
-      // Step 3: Save profile row
+      // Step 2: Save profile IMMEDIATELY while OTP session is valid
+      // Must happen before updateUser() which can trigger a session refresh event
       const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
         p_full_name: suName.trim(),
         p_email: suEmail.trim(),
         p_phone: fmt,
         p_role: ROLE,
       });
-      if (rpcErr) { setError(rpcErr.message); setLoading(false); return; }
+      if (rpcErr) { setError("Failed to save profile: " + rpcErr.message); setLoading(false); return; }
 
-      // Step 4: Navigate — AuthProvider picks up session via onAuthStateChange
+      // Step 3: Attach password after profile saved — non-fatal if fails
+      await supabase.auth.updateUser({ password: suPw });
+
+      // Step 4: Navigate
       setLoading(false);
       navigate(from, { replace: true });
 
