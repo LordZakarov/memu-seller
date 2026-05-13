@@ -140,7 +140,7 @@ export default function Login() {
       const fmt = formatPhone(id);
       // Look up their profile to get email
       const { data: profile } = await supabase
-        .from("sellers").select("email").eq("phone", fmt).maybeSingle();
+        .from("users").select("email").eq("phone", fmt).maybeSingle();
 
       if (!profile) {
         setError("No account found for this number. Please sign up.");
@@ -161,7 +161,7 @@ export default function Login() {
     } else {
       // Email provided — verify it exists in our table
       const { data: profile } = await supabase
-        .from("sellers").select("id").eq("email", id).maybeSingle();
+        .from("users").select("id").eq("email", id).maybeSingle();
       if (!profile) {
         setError("No account found for this email. Please sign up.");
         setLoading(false); return;
@@ -185,7 +185,7 @@ export default function Login() {
     if (fmt.replace(/\D/g, "").length < 7) { setError("Enter a valid phone number"); return; }
     setLoading(true); setError("");
     const { data: ex } = await supabase
-      .from("sellers").select("id").eq("phone", fmt).maybeSingle();
+      .from("users").select("id").eq("phone", fmt).maybeSingle();
     if (!ex) { setError("No account found for this number."); setLoading(false); return; }
     const { error: e } = await supabase.auth.signInWithOtp({ phone: fmt });
     setLoading(false);
@@ -218,12 +218,12 @@ export default function Login() {
 
     // Check phone unique for this role
     const { data: phoneEx } = await supabase
-      .from("sellers").select("id").eq("phone", fmt).maybeSingle();
+      .from("users").select("id").eq("phone", fmt).maybeSingle();
     if (phoneEx) { setError("This number already has an account. Use Sign In below, or use OTP to sign in."); setLoading(false); return; }
 
     // Check email unique for this role
     const { data: emailEx } = await supabase
-      .from("sellers").select("id").eq("email", suEmail.trim()).maybeSingle();
+      .from("users").select("id").eq("email", suEmail.trim()).maybeSingle();
     if (emailEx) { setError("This email already has an account. Sign in instead."); setLoading(false); return; }
 
     // Send OTP to verify phone
@@ -247,21 +247,23 @@ export default function Login() {
       if (otpErr) { setError(otpErr.message); setLoading(false); return; }
       if (!otpData.user) { setError("Verification failed. Please try again."); setLoading(false); return; }
 
-      // Step 2: Save profile immediately — session is active right after verifyOtp
-      const { error: rpcErr } = await supabase.rpc("upsert_seller_profile", {
+      // Step 2: Save profile to our table
+      const { error: rpcErr } = await supabase.rpc("upsert_my_profile", {
         p_full_name: suName.trim(),
         p_email: suEmail.trim(),
         p_phone: fmt,
       });
       if (rpcErr) { setError("Failed to save profile: " + rpcErr.message); setLoading(false); return; }
 
-      // Step 3: Set password using a race-safe approach
-      // Use Promise.race with a 3 second timeout so it never hangs
-      const pwResult = await Promise.race([
-        supabase.auth.updateUser({ password: suPw }),
-        new Promise<{ error: null }>(r => setTimeout(() => r({ error: null }), 3000)),
-      ]);
-      // Password is non-fatal — user can reset via OTP if it didn't save
+      // Step 3: Attach email + password to Supabase Auth so they can sign in with password
+      // Requires "Enable email confirmations" = OFF in Supabase Auth settings
+      // Both email and password set in one call to avoid double confirmation triggers
+      const { error: updateErr } = await supabase.auth.updateUser({
+        email: suEmail.trim(),
+        password: suPw,
+      });
+      // Non-fatal — if it fails they can still use OTP to login
+      if (updateErr) console.warn("updateUser:", updateErr.message);
 
       // Step 4: Navigate
       setLoading(false);
@@ -280,7 +282,7 @@ export default function Login() {
     setLoading(true); setError("");
 
     const { data: user } = await supabase
-      .from("sellers").select("id,email").eq("phone", fmt).maybeSingle();
+      .from("users").select("id,email").eq("phone", fmt).maybeSingle();
     if (!user) { setError("No account found for this number."); setLoading(false); return; }
 
     const { error: e } = await supabase.auth.signInWithOtp({ phone: fmt });
