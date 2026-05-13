@@ -139,30 +139,20 @@ export default function Login() {
     if (isPhone) {
       const fmt = formatPhone(id);
       // Look up their profile to get email
-      const { data: profile } = await supabase
-        .from("users").select("email").eq("phone", fmt).maybeSingle();
+      const { data: foundEmail } = await supabase
+        .rpc("get_email_by_phone", { p_phone: fmt });
 
-      if (!profile) {
+      if (!foundEmail) {
         setError("No account found for this number. Please sign up.");
         setLoading(false); return;
       }
 
-      if (!profile.email) {
-        // No email on their account — password login not possible.
-        // Redirect them to OTP sign-in automatically.
-        setOtpPhone(fmt.replace("+960", ""));
-        setLoading(false);
-        setError("This account has no email set. Use OTP to sign in.");
-        go("signin-otp-phone");
-        return;
-      }
-
-      loginEmail = profile.email;
+      loginEmail = foundEmail;
     } else {
-      // Email provided — verify it exists in our table
-      const { data: profile } = await supabase
-        .from("users").select("id").eq("email", id).maybeSingle();
-      if (!profile) {
+      // Email provided — verify it exists
+      const { data: exists } = await supabase
+        .rpc("check_email_exists", { p_email: id });
+      if (!exists) {
         setError("No account found for this email. Please sign up.");
         setLoading(false); return;
       }
@@ -185,7 +175,7 @@ export default function Login() {
     if (fmt.replace(/\D/g, "").length < 7) { setError("Enter a valid phone number"); return; }
     setLoading(true); setError("");
     const { data: ex } = await supabase
-      .from("users").select("id").eq("phone", fmt).maybeSingle();
+      .rpc("phone_exists", { p_phone: fmt });
     if (!ex) { setError("No account found for this number."); setLoading(false); return; }
     const { error: e } = await supabase.auth.signInWithOtp({ phone: fmt });
     setLoading(false);
@@ -218,12 +208,12 @@ export default function Login() {
 
     // Check phone unique for this role
     const { data: phoneEx } = await supabase
-      .from("users").select("id").eq("phone", fmt).maybeSingle();
-    if (phoneEx) { setError("This number already has an account. Use Sign In below, or use OTP to sign in."); setLoading(false); return; }
+      .rpc("phone_exists", { p_phone: fmt });
+    if (phoneEx) { setError("This number already has an account. Sign in instead."); setLoading(false); return; }
 
     // Check email unique for this role
     const { data: emailEx } = await supabase
-      .from("users").select("id").eq("email", suEmail.trim()).maybeSingle();
+      .rpc("email_exists", { p_email: suEmail.trim() });
     if (emailEx) { setError("This email already has an account. Sign in instead."); setLoading(false); return; }
 
     // Send OTP to verify phone
@@ -282,7 +272,7 @@ export default function Login() {
     setLoading(true); setError("");
 
     const { data: user } = await supabase
-      .from("users").select("id,email").eq("phone", fmt).maybeSingle();
+      .rpc("get_email_by_phone", { p_phone: fmt });
     if (!user) { setError("No account found for this number."); setLoading(false); return; }
 
     const { error: e } = await supabase.auth.signInWithOtp({ phone: fmt });
