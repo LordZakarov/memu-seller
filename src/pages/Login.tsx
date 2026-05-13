@@ -34,7 +34,7 @@ export default function Login() {
     setLoading(true); setError("");
 
     const { data: existing } = await supabase
-      .from("users").select("id").eq("phone", formatted).maybeSingle();
+      .from("users").select("id").eq("phone", formatted).eq("role", "seller").maybeSingle();
 
     setLoading(false);
     if (existing) {
@@ -55,7 +55,7 @@ export default function Login() {
     if (trimmedEmail) {
       setLoading(true);
       const { data: emailExists } = await supabase
-        .from("users").select("id").eq("email", trimmedEmail).maybeSingle();
+        .from("users").select("id").eq("email", trimmedEmail).eq("role", "seller").maybeSingle();
       setLoading(false);
       if (emailExists) {
         setError("This email is already registered. Use a different email or go back and sign in with your phone number.");
