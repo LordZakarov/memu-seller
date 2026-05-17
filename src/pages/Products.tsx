@@ -85,15 +85,20 @@ export default function Products() {
     if (!imageFiles.length) return [];
     setUploadingImages(true);
     const urls: string[] = [];
-    for (const file of imageFiles) {
-      const ext = file.name.split(".").pop();
-      const path = `${user!.id}/${productId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("product-images").upload(path, file, { upsert: false });
-      if (upErr) { console.error(upErr.message); continue; }
-      const { data: u } = supabase.storage.from("product-images").getPublicUrl(path);
-      if (u?.publicUrl) urls.push(u.publicUrl);
+    try {
+      for (const file of imageFiles) {
+        const ext = file.name.split(".").pop();
+        const path = `${user!.id}/${productId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error: upErr } = await supabase.storage.from("product-images").upload(path, file, { upsert: false });
+        if (upErr) { console.error("Image upload error:", upErr.message); continue; }
+        const { data: u } = supabase.storage.from("product-images").getPublicUrl(path);
+        if (u?.publicUrl) urls.push(u.publicUrl);
+      }
+    } catch (err) {
+      console.error("Upload failed:", err);
+    } finally {
+      setUploadingImages(false);
     }
-    setUploadingImages(false);
     return urls;
   }
 
@@ -125,28 +130,32 @@ export default function Products() {
     if (!form.price || isNaN(parseFloat(form.price))) { setError("Please enter a valid price"); return; }
     if (form.delivery_methods.length === 0) { setError("Select at least one delivery method"); return; }
     setSaving(true); setError("");
-
-    const payload = buildPayload(form);
-
-    if (editId) {
-      const newUrls = await uploadImages(editId);
-      const allImages = [...existingImages, ...newUrls];
-      const { error: e } = await supabase.from("products").update({ ...payload, images: allImages }).eq("id", editId);
-      if (e) { setError(e.message); setSaving(false); return; }
-      setProducts(prev => prev.map(p => p.id === editId ? { ...p, ...payload, images: allImages } : p));
-    } else {
-      const { data: inserted, error: e } = await supabase.from("products")
-        .insert({ ...payload, seller_id: user!.id, status: "active", images: [] })
-        .select("id,title,description,price,stock_quantity,category,status,images,delivery_methods,brand,sku,weight_grams,dimensions,ingredients,sizes,colors,material,created_at")
-        .single();
-      if (e) { setError(e.message); setSaving(false); return; }
-      if (imageFiles.length && inserted) {
-        const urls = await uploadImages(inserted.id);
-        if (urls.length) { await supabase.from("products").update({ images: urls }).eq("id", inserted.id); inserted.images = urls; }
+    try {
+      const payload = buildPayload(form);
+      if (editId) {
+        const newUrls = await uploadImages(editId);
+        const allImages = [...existingImages, ...newUrls];
+        const { error: e } = await supabase.from("products").update({ ...payload, images: allImages }).eq("id", editId);
+        if (e) { setError(e.message); return; }
+        setProducts(prev => prev.map(p => p.id === editId ? { ...p, ...payload, images: allImages } : p));
+      } else {
+        const { data: inserted, error: e } = await supabase.from("products")
+          .insert({ ...payload, seller_id: user!.id, status: "active", images: [] })
+          .select("id,title,description,price,stock_quantity,category,status,images,delivery_methods,brand,sku,weight_grams,dimensions,ingredients,sizes,colors,material,created_at")
+          .single();
+        if (e) { setError(e.message); return; }
+        if (imageFiles.length && inserted) {
+          const urls = await uploadImages(inserted.id);
+          if (urls.length) { await supabase.from("products").update({ images: urls }).eq("id", inserted.id); inserted.images = urls; }
+        }
+        if (inserted) setProducts(prev => [inserted, ...prev]);
       }
-      if (inserted) setProducts(prev => [inserted, ...prev]);
+      closeForm();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setSaving(false);
     }
-    closeForm(); setSaving(false);
   }
 
   async function deleteProduct(id: string) {
