@@ -14,6 +14,7 @@ import Account from "@/pages/Account";
 import Reviews from "@/pages/Reviews";
 import Notifications from "@/pages/Notifications";
 import Ads from "@/pages/Ads";
+import QandA from "@/pages/QandA";
 import SubscriptionComplete from "@/pages/SubscriptionComplete";
 
 export default function App() {
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="/reviews" element={<Reviews />} />
             <Route path="/bank" element={<BankDetails />} />
             <Route path="/notifications" element={<Notifications />} />
+            <Route path="/qa" element={<QandA />} />
             <Route path="/account" element={<Account />} />
           </Route>
 
