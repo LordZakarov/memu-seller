@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/auth/AuthProvider";
 import {
-  LayoutDashboard, Package, Wrench, ShoppingCart,
+  LayoutDashboard, MessageCircle, Package, Wrench, ShoppingCart,
   TrendingUp, Megaphone, Star, Building2, Bell, User, LogOut, ChevronRight, Menu, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
